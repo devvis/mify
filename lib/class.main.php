@@ -55,12 +55,11 @@ class mify {
 	
 	private function connectToDB($host, $username, $password, $database) {
 		try {
-			#$this->db = new PDO("mysql:host={$host};dbname={$database}", "{$username}", "{$password}", array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::MYSQL_ATTR_INIT_COMMAND("SET NAMES UTF8")));
 			$this->db = new PDO("mysql:host={$host};dbname={$database}", "{$username}", "{$password}", array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION));
 		}
 		catch(PDOException $e) {
 				$this->log->logEmerg("Database connection error: {$e}");
-				header("Location:{$this->siteURL}{$this->dbErrorPage}"); ## Blir inte så jävla bra då man kommer till samma sida som försöker göra om allt igen..
+				header("Location:{$this->siteURL}{$this->dbErrorPage}");
 				die;
 		}
 	}
@@ -92,6 +91,7 @@ class mify {
 	}
 	
 	public function parseRequest() {
+		# Returns true on any request, otherwise false
 		if(isset($_POST['mifySubmit'])) {
 			$this->postURL();
 			return true;
@@ -101,21 +101,47 @@ class mify {
 			return true;
 		}
 		else {
-			return true;
+			return false;
 		}
 	}
 	
 	private function parseURLRequest() {
 		# This handles the acutal redirection for the shortened URL
-		if(!preg_match("/^[0-9]+$/", $_GET['u'])) {
-			$this->log->logInfo("Invalid ID submitted - {$_GET['u']}");
+		
+		try {
+			$q = $this->db->prepare("SELECT urls.url FROM urls INNER JOIN `customurl` ON customurl.urlID = urls.id WHERE customurl.customURL = :cURL");
+			$q->bindParam(":cURL", $_GET['u']);
+			$q->execute();
+			$data = $q->fetch();
+		}
+		catch(PDOException $e) {
+			$this->log->logInfo("Something went wrong when querying for the custom url {$_GET['u']} - {$e}");
+		}
+		
+		
+		if($data[0] != false) {
+			# The provided id isn't a number, but a custom URL so lets just do the redirection right away.
+			$this->log->logDebug("Redirecting to {$data['url']}");
+			header("HTTP/1.1 301 Moved Permanently");
+			header("Location: {$data['url']}"); # Should we use URL-encode here?
+			die;
+		}
+		
+		# Reset to avoid unavoidable shitstorm
+		$query = "";
+		$data = "";
+		
+		$urlID = $this->baseToInt($_GET['u']);
+		
+		if(!preg_match("/^[0-9]+$/", $urlID)) {
+			$this->log->logInfo("Invalid ID submitted - {$urlID}");
 			header("Location:{$this->siteURL}?e=201");
 			die;
 		}
 		# assuming everything's good, moving on.
 		
 		$query = $this->db->prepare("SELECT `url` FROM urls WHERE `id` = :id");
-		$query->bindParam(":id", $_GET['u']);
+		$query->bindParam(":id", $urlID);
 		$query->execute();
 		
 		$data = $query->fetch();
@@ -126,6 +152,7 @@ class mify {
 			die;
 		}
 		else {
+			$this->log->logDebug("Redirecting to {$data['url']}");
 			header("HTTP/1.1 301 Moved Permanently");
 			header("Location: {$data['url']}"); # Should we use URL-encode here?
 			die;
@@ -139,7 +166,16 @@ class mify {
 		# 101 - Invalid URL
 		# 102 - Could not add the URL to the database
 		if($this->db == true) {
+			$useCustomURL = false;
+			$cURL = "";
 			$url = htmlentities(trim($_POST['mifyURL']));
+			
+			if(isset($_POST['mifyCustom'])) {
+				$cURL = htmlentities(trim($_POST['mifyCustom']));
+				if($cURL != "") {
+					$useCustomURL = true;
+				}
+			}
 			
 			if($this->urlHelp->verifyURL($url) == false) {
 				## Check so that the url is valid and so, through curl and regexp!
@@ -149,15 +185,27 @@ class mify {
 			}
 			
 			
-			$q = $this->db->prepare("SELECT `id` FROM urls WHERE `hash` = MD5(:url)"); # We try and look up the url through an hash instead of the full url, should result in better performance
+			
+			
+			#$q = $this->db->prepare("SELECT `id` FROM urls WHERE `hash` = MD5(:url)"); # We try and look up the url through an hash instead of the full url, should result in better performance
+			
+			$q = $this->db->prepare("SELECT urls.url, customurl.customURL FROM `urls` LEFT JOIN `customurl` ON urls.id = customurl.urlID WHERE urls.hash = MD5(:url)");
 			$q->bindParam(":url", $url);
 			$q->execute();
 			$data = $q->fetch();
 			
 			if(isset($data['id']) && $data['id'] > 0) {
 				# we got the record already, let's just generate the url from here (no need to insert it into the db since it's already there..)
-				echo $this->intToBase($data['id']);
-				#header("Location:{$this->siteURL}?url="
+				if($data['customURL'] == NULL) {
+					# We got a custom url for this one
+					# Not sure if we're going to display that, we could just use the normal one since
+					# this user probably won't like the custom one that exists
+					echo $data['customURL'];
+				}
+				else {
+					echo $this->intToBase($data['id']);
+					#header("Location:{$this->siteURL}?url="
+				}
 			}
 			else {
 				try {
@@ -165,25 +213,43 @@ class mify {
 					$q = $this->db->prepare("INSERT INTO `urls` SET `url` = :url, `hash` = MD5(:url)");
 					$q->bindParam(":url", $url);
 					$i = $this->db->prepare("SELECT LAST_INSERT_ID()");
+						
+						
 					
 					$q->execute();
 					$i->execute();
 					$this->db->commit();
 					
 					$id = $i->fetch();
-					
-					# now $id[0] contains the id of the url in the db
-					# just generate the url from here
-					
-					echo $this->intToBase($id[0]);
-	
 				}
 				catch(PDOException $e) {
-					$db->rollBack();
+					$this->db->rollBack();
 					$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
 					header("Location:{$this->siteURL}?=102");
 				}
-				
+				if($useCustomURL == true) {
+					try {
+						$this->db->beginTransaction();
+						$c = $this->db->prepare("INSERT INTO `customurl` SET `urlID` = :id, `customURL` = :cURL");
+						$c->bindParam(":id", $id[0], PDO::PARAM_INT);
+						$c->bindParam(":cURL", $cURL);
+						$c->execute();
+						$this->db->commit();
+					}
+					catch(PDOException $e) {
+						$this->db->rollBack();
+						$this->log->logAlert("Failed to add the custom URL to database. URL: {$cURL} - Exception {$e}");
+						header("Location:{$this->siteURL}?=102");
+					}
+				}
+				# now $id[0] contains the id of the url in the db
+				# just generate the url from here
+				if($useCustomURL == true) {
+					echo $cURL;
+				}
+				else {
+					echo $this->intToBase($id[0]);
+				}
 			}
 		}
 		else {
