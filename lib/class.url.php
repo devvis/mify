@@ -7,7 +7,7 @@ class urlHelper extends mify {
 	# the functions inside it.
 	
 	public function __construct() {
-		return true;
+		return true; # Aw yeah :(
 	}
 	
 	protected function verifyURL($url) {
@@ -29,7 +29,7 @@ class urlHelper extends mify {
 
 		$c = curl_init();
 		curl_setopt($c, CURLOPT_URL, $url);
-		curl_setopt($c, CURLOPT_USERAGENT, 'Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0)');
+		curl_setopt($c, CURLOPT_USERAGENT, 'Mozilla/4.0 (compatible; MSIE 5.01; Windows NT 5.0) mify-me/framework');
 		curl_setopt($c, CURLOPT_RETURNTRANSFER,1);
 		curl_setopt($c, CURLOPT_FOLLOWLOCATION, 1);
 		curl_setopt($c, CURLOPT_CONNECTTIMEOUT, 15);
