@@ -6,11 +6,13 @@ class mify {
 	# ?e=101 - Non-valid URL submitted
 	# ?e=201 - Invalid ID submitted
 	# ?e=202 - Error while processing the request
-	
-	
-	public $formValidation;
-	public $dbErrorPage;
-	public $debug;
+
+	# Exception-codes
+	# 100 - Errors related to initialization of the class, refer to exception message
+
+	public $formValidation;				# 
+	public $dbErrorPage;				# Error-page on unavailable database-connection (defaults to maint.php)
+	public $debug;					# 
 	
 	private $log;
 	private $urlHelp;
@@ -20,10 +22,23 @@ class mify {
 	private $db;
 	
 	public function __construct($url, $host, $username, $password, $database) {
-		#if(session_status() == PHP_SESSION_DISABLED) {
-		#	session_start();
-		#}
+		if(session_status() == PHP_SESSION_DISABLED) {
+			session_start();
+		}
 
+		if(version_compare(PHP_VERSION, 5.4.0) < 0) {
+			throw new Exception("Error: Erroneous PHP-version, must be at least 5.4.0", 100);
+		}
+		
+		# Checks for mandatory extensions
+		if(!extension_loaded("curl")) {
+			throw new Exception("Error: Missing cURL - Please enable that extension before using mify.", 100);
+		}
+		if(!extension_loaded("pdo")) {
+			throw new Exception("Error: Missing PDO - Please enable that extension before using mify.", 100);
+		}
+		
+		
 		# init the logging
 		if(isset($this->debug) && $this->debug == true) {
 			$this->log = new KLogger("log/", KLogger::DEBUG);			
@@ -49,8 +64,6 @@ class mify {
 		}
 		
 		$this->connectToDB($host, $username, $password, $database);
-		
-		
 	}
 	
 	private function connectToDB($host, $username, $password, $database) {
