@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 class mify {
 	# Error codes redirected to by the class
@@ -6,39 +6,28 @@ class mify {
 	# ?e=101 - Non-valid URL submitted
 	# ?e=201 - Invalid ID submitted
 	# ?e=202 - Error while processing the request
-
-	# Exception-codes
-	# 100 - Errors related to initialization of the class, refer to exception message
-
-	public $formValidation;				# 
-	public $dbErrorPage;				# Error-page on unavailable database-connection (defaults to maint.php)
-	public $debug;					# 
+	
+	# TODO:
+	# 1) Add validation for custom urls, should only contain a-z A-Z 0-9 and _
+	
+	
+	
+	public $formValidation;
+	public $dbErrorPage;
+	public $debug;
+	public $siteURL;
+	public $db;
 	
 	private $log;
 	private $urlHelp;
 	
-	private $siteURL;
 	private $formValue;
-	private $db;
 	
 	public function __construct($url, $host, $username, $password, $database) {
-		if(session_status() == PHP_SESSION_DISABLED) {
-			session_start();
-		}
+		#if(session_status() == PHP_SESSION_DISABLED) { # Only for PHP > 5.4.0
+		#	session_start();
+		#}
 
-		if(version_compare(PHP_VERSION, 5.4.0) < 0) {
-			throw new Exception("Error: Erroneous PHP-version, must be at least 5.4.0", 100);
-		}
-		
-		# Checks for mandatory extensions
-		if(!extension_loaded("curl")) {
-			throw new Exception("Error: Missing cURL - Please enable that extension before using mify.", 100);
-		}
-		if(!extension_loaded("pdo")) {
-			throw new Exception("Error: Missing PDO - Please enable that extension before using mify.", 100);
-		}
-		
-		
 		# init the logging
 		if(isset($this->debug) && $this->debug == true) {
 			$this->log = new KLogger("log/", KLogger::DEBUG);			
@@ -64,6 +53,8 @@ class mify {
 		}
 		
 		$this->connectToDB($host, $username, $password, $database);
+		
+		
 	}
 	
 	private function connectToDB($host, $username, $password, $database) {
@@ -76,8 +67,8 @@ class mify {
 				die;
 		}
 	}
-	
-		
+
+			
 	private function generateFormValue() {
 		# Generates a unique value to be used in the form
 		# so that we're sure the request is coming from the site itself
@@ -178,6 +169,7 @@ class mify {
 		# 100 - Missing the connection to the database - will actually never happen due to obvious reasons (stuck in infinite loop etc)
 		# 101 - Invalid URL
 		# 102 - Could not add the URL to the database
+		# 103 - The chosen custom url isn't available
 		if($this->db == true) {
 			$useCustomURL = false;
 			$cURL = "";
@@ -196,28 +188,47 @@ class mify {
 				header("Location:{$this->siteURL}?e=101");
 				die;
 			}
-			
-			
-			
-			
-			#$q = $this->db->prepare("SELECT `id` FROM urls WHERE `hash` = MD5(:url)"); # We try and look up the url through an hash instead of the full url, should result in better performance
+			/*
+			if($useCustomURL == true) {
+				# we need to ensure that the custom url does not exist already (only applies if the user want's a custom one
+				$q = $this->db->prepare("SELECT customurl.urlID FROM `customurl` WHERE customurl.customURL = :cURL");
+				$q->bindParam(":cURL", $_POST['mifyCustom']);
+				$q->execute();
+				$data = $q->fetch();
+				
+				if($data['urlID'] > 0) {
+					# the chosen custom url already exist in the database, the user need to provide a new one
+					header("Location:{$this->siteURL}?e=103");
+				}
+				
+			}
+			*/
 			
 			$q = $this->db->prepare("SELECT urls.url, customurl.customURL FROM `urls` LEFT JOIN `customurl` ON urls.id = customurl.urlID WHERE urls.hash = MD5(:url)");
 			$q->bindParam(":url", $url);
 			$q->execute();
 			$data = $q->fetch();
 			
-			if(isset($data['id']) && $data['id'] > 0) {
+			if(isset($data['id']) && $data['id'] > 0 && $useCustomURL == false) {
 				# we got the record already, let's just generate the url from here (no need to insert it into the db since it's already there..)
-				if($data['customURL'] == NULL) {
-					# We got a custom url for this one
-					# Not sure if we're going to display that, we could just use the normal one since
-					# this user probably won't like the custom one that exists
-					echo $data['customURL'];
+				# this is unless the user passes on a custom url, then they probably would want that instead
+				echo $this->intToBase($data['id']);
+				#header("Location:{$this->siteURL}?url="
+				#die;
+				
+			}
+			elseif(isset($data['id']) && $data['id'] > 0 && $useCustomURL == true) {
+				# We got an existing URL in the database but not the custom one, so lets just add it and we're all set and done!
+				try {
+					$this->db->beginTransaction();
+					$q = $this->db->prepare("INSERT INTO `customurl` SET `customURL` = :cURL, `urlID` = :urlID");
+					$q->bindParam(":cURL", $_POST['mifyCustom']);
+					$q->bindParam(":urlID", $data['id']);
+					$q->execute();
+					$this->db->commit();
 				}
-				else {
-					echo $this->intToBase($data['id']);
-					#header("Location:{$this->siteURL}?url="
+				catch(PDOException $e) {
+					$this->log->logAlert("Failed to add the custom URL to the database. URL: {$_POST['mifyCustom']} - Exception {$e}");
 				}
 			}
 			else {
@@ -238,7 +249,8 @@ class mify {
 				catch(PDOException $e) {
 					$this->db->rollBack();
 					$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
-					header("Location:{$this->siteURL}?=102");
+					header("Location:{$this->siteURL}?e=102");
+					die;
 				}
 				if($useCustomURL == true) {
 					try {
@@ -252,7 +264,8 @@ class mify {
 					catch(PDOException $e) {
 						$this->db->rollBack();
 						$this->log->logAlert("Failed to add the custom URL to database. URL: {$cURL} - Exception {$e}");
-						header("Location:{$this->siteURL}?=102");
+						header("Location:{$this->siteURL}?e=102");
+						die;
 					}
 				}
 				# now $id[0] contains the id of the url in the db
@@ -261,7 +274,9 @@ class mify {
 					echo $cURL;
 				}
 				else {
-					echo $this->intToBase($id[0]);
+					//echo $this->intToBase($id[0]);
+					$id = $this->intToBase($id[0]);
+					header("Location:{$this->siteURL}?pu={$id}");
 				}
 			}
 		}
@@ -270,6 +285,10 @@ class mify {
 			header("Location:{$this->siteURL}{$this->dbErrorPage}");
 			die; ## TODO: Fixa bättre hantering för tappade/icke-existerande db-c0nns
 		}
+	}
+
+	public function getURLLink($id) {
+		return $this->siteURL . "?u={$id}";
 	}
 
 
