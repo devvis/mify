@@ -1,8 +1,5 @@
 SET SQL_MODE="NO_AUTO_VALUE_ON_ZERO";
-
---
--- Database: `mify-v2`
---
+SET time_zone = "+00:00";
 
 -- --------------------------------------------------------
 
@@ -20,6 +17,20 @@ CREATE TABLE IF NOT EXISTS `customurl` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `urlclicks`
+--
+
+CREATE TABLE IF NOT EXISTS `urlclicks` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `urlID` int(11) NOT NULL,
+  `clicks` int(11) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `urlID` (`urlID`)
+) ENGINE=InnoDB  DEFAULT CHARSET=latin1;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `urls`
 --
 
@@ -32,6 +43,19 @@ CREATE TABLE IF NOT EXISTS `urls` (
   KEY `hash` (`hash`)
 ) ENGINE=InnoDB  DEFAULT CHARSET=latin1;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `urlstats`
+--
+
+CREATE TABLE IF NOT EXISTS `urlstats` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `urlID` int(11) NOT NULL,
+  `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB  DEFAULT CHARSET=latin1;
+
 --
 -- Constraints for dumped tables
 --
@@ -41,3 +65,4 @@ CREATE TABLE IF NOT EXISTS `urls` (
 --
 ALTER TABLE `customurl`
   ADD CONSTRAINT `customurl_ibfk_1` FOREIGN KEY (`urlID`) REFERENCES `urls` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
