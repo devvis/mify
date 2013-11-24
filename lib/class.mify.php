@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 class mify {
 	# Error codes redirected to by the class
@@ -142,7 +142,7 @@ class mify {
 		
 		if(!preg_match("/^[0-9]+$/", $urlID)) {
 			$this->log->logInfo("Invalid ID submitted - {$urlID}");
-			header("Location:{$this->siteURL}?e=201");
+			header("Location:{$this->siteURL}error/201");
 			die;
 		}
 		# assuming everything's good, moving on.
@@ -155,7 +155,7 @@ class mify {
 		
 		if(!isset($data['url'])) {
 			$this->log->logWarn("The database did not return any URL for ID {$_GET['u']}");
-			header("Location:{$this->siteURL}?e=202");
+			header("Location:{$this->siteURL}error/201");
 			die;
 		}
 		else {
@@ -189,7 +189,7 @@ class mify {
 			if($this->urlHelp->verifyURL($url) == false) {
 				## Check so that the url is valid and so, through curl and regexp!
 				$this->log->logInfo("Seems like the url {$_POST['mifyURL']} is invalid.");
-				header("Location:{$this->siteURL}?e=101");
+				header("Location:{$this->siteURL}error/101");
 				die;
 			}
 			/*
@@ -216,7 +216,7 @@ class mify {
 			if(isset($data['id']) && $data['id'] > 0 && $useCustomURL == false) {
 				# we got the record already, let's just generate the url from here (no need to insert it into the db since it's already there..)
 				# this is unless the user passes on a custom url, then they probably would want that instead
-				echo $this->intToBase($data['id']);
+				#echo $this->intToBase($data['id']);
 				#header("Location:{$this->siteURL}?url="
 				#die;
 				
@@ -253,7 +253,7 @@ class mify {
 				catch(PDOException $e) {
 					$this->db->rollBack();
 					$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
-					header("Location:{$this->siteURL}?e=102");
+					header("Location:{$this->siteURL}error/102");
 					die;
 				}
 				if($useCustomURL == true) {
@@ -268,7 +268,7 @@ class mify {
 					catch(PDOException $e) {
 						$this->db->rollBack();
 						$this->log->logAlert("Failed to add the custom URL to database. URL: {$cURL} - Exception {$e}");
-						header("Location:{$this->siteURL}?e=102");
+						header("Location:{$this->siteURL}error/102");
 						die;
 					}
 				}
@@ -278,21 +278,21 @@ class mify {
 					echo $cURL;
 				}
 				else {
-					//echo $this->intToBase($id[0]);
 					$id = $this->intToBase($id[0]);
-					header("Location:{$this->siteURL}?pu={$id}");
+					header("Location:{$this->siteURL}done/{$id}");
+					die;
 				}
 			}
 		}
 		else {
 			$this->log->logEmerg("Missing database-connection. - ".var_dump($this->db));
 			header("Location:{$this->siteURL}{$this->dbErrorPage}");
-			die; ## TODO: Fixa bättre hantering för tappade/icke-existerande db-c0nns
+			die; ## TODO: Fix better handeling of dropped database-connections
 		}
 	}
 
 	public function getURLLink($id) {
-		return $this->siteURL . "?u={$id}";
+		return $this->siteURL . "u/{$id}";
 	}
 
 
@@ -302,7 +302,6 @@ class mify {
 	private function baseToInt($i) {
 		return base_convert($i, 36, 10);
 	}
-
 
 	public function getUrlStats($url) {
 
@@ -323,11 +322,19 @@ class mify {
 		if($urlClicks[0] < 1) {
 			$urlClicks[0] = 0;
 		}
+
 		if($urlClicksDays[0] < 1) {
 			$urlClicksDays[0] = 0;
 		}
 
 		return array(0 => "{$this->siteURL}u/{$url}", 1 => $urlClicks[0], 2 => $urlClicksDays[0]);
+		/*
+			array(
+				0 => http://siteurl/u/ID,
+				1 => total number of clicks,
+				2 => clicks the last 7 days
+			)
+		*/
 	}
 
 
@@ -338,7 +345,6 @@ class mify {
 		}
 
 		$q = $this->db->prepare("SELECT `urlID` FROM `urlclicks` WHERE `urlID` = :url");
-		//$q = $this->db->prepare("SELECT EXISTS(SELECT 1 FROM `urlclicks` WHERE `urlID` = :url)");
 		$q->bindParam(":url", $url, PDO::PARAM_INT);
 		$q->execute();
 
