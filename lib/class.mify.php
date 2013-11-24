@@ -23,14 +23,16 @@ class mify {
 	
 	private $formValue;
 	
-	public function __construct($url, $host, $username, $password, $database) {
+	public function __construct($url, $host, $username, $password, $database, $debug) {
 		#if(session_status() == PHP_SESSION_DISABLED) { # Only for PHP > 5.4.0
 		#	session_start();
 		#}
 
+		$this->debug = $debug;
+
 		# init the logging
 		if(isset($this->debug) && $this->debug == true) {
-			$this->log = new KLogger("log/", KLogger::DEBUG);			
+			$this->log = new KLogger("log/", KLogger::DEBUG);
 		}
 		else {
 			$this->log = new KLogger("log/", KLogger::INFO);
@@ -125,7 +127,8 @@ class mify {
 		
 		if($data[0] != false) {
 			# The provided id isn't a number, but a custom URL so lets just do the redirection right away.
-			$this->log->logDebug("Redirecting to {$data['url']}");
+			$this->log->logInfo("Redirecting to {$data['url']}");
+			$this->logUrlClick($urlID);
 			header("HTTP/1.1 301 Moved Permanently");
 			header("Location: {$data['url']}"); # Should we use URL-encode here?
 			die;
@@ -156,7 +159,8 @@ class mify {
 			die;
 		}
 		else {
-			$this->log->logDebug("Redirecting to {$data['url']}");
+			$this->log->logInfo("Redirecting to {$data['url']}");
+			$this->logUrlClick($urlID);
 			header("HTTP/1.1 301 Moved Permanently");
 			header("Location: {$data['url']}"); # Should we use URL-encode here?
 			die;
@@ -298,4 +302,71 @@ class mify {
 	private function baseToInt($i) {
 		return base_convert($i, 36, 10);
 	}
+
+
+	public function getUrlStats($url) {
+
+		$iurl = $this->baseToInt($url); // fixes the url so that it's an int :D
+
+		$q = $this->db->prepare("SELECT `clicks` FROM `urlclicks` WHERE `urlID` = :url");
+		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
+		$q->execute();
+
+		$urlClicks = $q->fetch();
+
+		$q = $this->db->prepare("SELECT COUNT(`urlID`) FROM `urlstats` WHERE `timestamp` >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND `urlID` = :url");
+		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
+		$q->execute();
+
+		$urlClicksDays = $q->fetch();
+
+		if($urlClicks[0] < 1) {
+			$urlClicks[0] = 0;
+		}
+		if($urlClicksDays[0] < 1) {
+			$urlClicksDays[0] = 0;
+		}
+
+		return array(0 => "{$this->siteURL}u/{$url}", 1 => $urlClicks[0], 2 => $urlClicksDays[0]);
+	}
+
+
+	# URL-logging/stats functionality
+	public function logUrlClick($url) {
+		if(!isset($url)) {
+			return false;
+		}
+
+		$q = $this->db->prepare("SELECT `urlID` FROM `urlclicks` WHERE `urlID` = :url");
+		//$q = $this->db->prepare("SELECT EXISTS(SELECT 1 FROM `urlclicks` WHERE `urlID` = :url)");
+		$q->bindParam(":url", $url, PDO::PARAM_INT);
+		$q->execute();
+
+		$urlID = $q->fetch();
+
+		$this->log->logInfo("urlID: {$urlID}");
+	
+
+		if($urlID > 0) {
+			# currently already logging the given url
+			$q = $this->db->prepare("UPDATE urlclicks SET clicks = clicks + 1 WHERE urlID = :urlID");
+			$q->bindParam(":urlID", $url, PDO::PARAM_INT);
+			$q->execute();
+		}
+		else {
+			# currently not logging the given url
+			$q = $this->db->prepare("INSERT INTO urlclicks SET clicks = 1, urlID = :urlID");
+			$q->bindParam(":urlID", $url, PDO::PARAM_INT);
+			$q->execute();
+		}
+
+
+		$q = $this->db->prepare("INSERT INTO urlstats SET urlID = :urlID");
+		$q->bindParam(":urlID", $url, PDO::PARAM_INT);
+		$q->execute();
+
+
+		return true;
+	}
+
 }
