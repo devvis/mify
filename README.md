@@ -3,7 +3,7 @@ mify - the simple url-shortening library
 
 ### About
 
-This small library was created by me, primairly to use with my domain ([http://mify.me]). The thought behind mify is that it should be fairly easy to use and implement on existing sites.
+This small library was created by me, primairly to use with my domain (<http://mify.me>). The thought behind mify is that it should be fairly easy to use and implement on existing sites.
 
 Currently there's no real examples out there, but I'll work on that, but basically what you need to do is something like this:
 
@@ -25,3 +25,9 @@ Currently there's no real examples out there, but I'll work on that, but basical
 	* 202: Error while processing the request (aka everything is broken)
 
 As there's no further documentation available at the moment, check the actual functions to see how they're used.
+
+For a live demo of the library in action, you could always check out the site above.
+
+### Dependencies
+
+KLogger <https://github.com/katzgrau/KLogger>
