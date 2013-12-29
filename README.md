@@ -20,7 +20,7 @@ Currently there's no real examples out there, but I'll work on that, but basical
 7. The error-codes currently present are these:
 	* 100: Missing database-connection
 	* 101: A non-valid url was submitted
-	* 102: Was unable to add the url to the database (don't as me how)
+	* 102: Was unable to add the url to the database (don't ask me how)
 	* 201: Invalid url-id was submitted
 	* 202: Error while processing the request (aka everything is broken)
 
