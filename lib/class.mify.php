@@ -10,8 +10,6 @@ class mify {
 	# TODO:
 	# 1) Add validation for custom urls, should only contain a-z A-Z 0-9 and _
 	
-	
-	
 	public $formValidation;
 	public $dbErrorPage;
 	public $debug;
@@ -24,10 +22,9 @@ class mify {
 	private $formValue;
 	
 	public function __construct($url, $host, $username, $password, $database, $debug) {
-		#if(session_status() == PHP_SESSION_DISABLED) { # Only for PHP > 5.4.0
-		#	session_start();
-		#}
-
+		if(!isset($url) || !isset($host) || !isset($username) || !isset($database) || !isset($debug)) {
+			throw new Exception("Missing parameter in the constructor. Aborting.", 0);
+		}
 		$this->debug = $debug;
 
 		# init the logging
@@ -39,9 +36,6 @@ class mify {
 		}
 		$this->urlHelp = new urlHelper();
 		
-		if(!isset($url) || !isset($host) || !isset($username) || !isset($database)) {
-			throw new Exception("Missing parameter in the constructor. Aborting.", 0);
-		}
 		$this->siteURL = $url;
 		
 		
@@ -70,20 +64,15 @@ class mify {
 		}
 	}
 
-			
-	private function generateFormValue() {
-		# Generates a unique value to be used in the form
-		# so that we're sure the request is coming from the site itself
-		$this->formValue = uniqid("mify_", true);
-		$_SESSION['mifyVal'] = $this->formValue;
-	}
-	
 	public function getUrl() {
 		# Returns the site url
 		return $this->siteURL;
 	}
 	
 	public function getFormValue() {
+		#### This function is not implemented yet. ####
+
+		/*
 		# Check if form-validation is used
 		if($this->formValidation == false) {
 			return;
@@ -94,10 +83,13 @@ class mify {
 			}
 			return $this->formValue;
 		}
+		*/
 	}
 	
 	public function parseRequest() {
 		# Returns true on any request, otherwise false
+		# Actually doesn't return anything but a redirect if either post or get is set..
+
 		if(isset($_POST['mifySubmit'])) {
 			$this->postURL();
 			return true;
@@ -110,63 +102,92 @@ class mify {
 			return false;
 		}
 	}
+
+	public function getURLLink($id) {
+		if(!isset($id)) {
+			throw new Exception("Missing parameter, aborting.", 0);
+		}
+
+		return $this->siteURL . "u/{$id}";
+	}
+
+	public function getUrlStats($url) {
+		# This function fetches the stats for the given url, returns an array
+		# upon success, like this:
+		# array(0 => http://site.url, 1 => *int* Total clicks, 2 => *int* Clicks last 7 days)
+		# Returns error-message 301 if there's no url on that ID.
+		if(!isset($url)) {
+			throw new Exception("Missing parameter, aborting.", 0);
+		}
+
+		$iurl = $this->baseToInt($url); // fixes the url so that it's an int :D
+		$this->verifyID($iurl);
+
+
+
+		$q = $this->db->prepare("SELECT `clicks` FROM `urlclicks` WHERE `urlID` = :url");
+		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
+		$q->execute();
+
+		$urlClicks = $q->fetch();
+
+		$q = $this->db->prepare("SELECT COUNT(`urlID`) FROM `urlstats` WHERE `timestamp` >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND `urlID` = :url");
+		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
+		$q->execute();
+
+		$urlClicksDays = $q->fetch();
+
+		if($urlClicks[0] < 1) {
+			$urlClicks[0] = 0;
+		}
+
+		if($urlClicksDays[0] < 1) {
+			$urlClicksDays[0] = 0;
+		}
+
+		return array(0 => "{$this->siteURL}u/{$url}", 1 => $urlClicks[0], 2 => $urlClicksDays[0]);
+	}
+
+
+	# URL-logging/stats functionality
+	private function logUrlClick($url) {
+		if(!isset($url)) {
+			throw new Exception("Missing parameter, aborting.", 0);
+		}
+
+		$q = $this->db->prepare("SELECT `urlID` FROM `urlclicks` WHERE `urlID` = :url");
+		//$q = $this->db->prepare("SELECT EXISTS(SELECT 1 FROM `urlclicks` WHERE `urlID` = :url)");
+		$q->bindParam(":url", $url, PDO::PARAM_INT);
+		$q->execute();
+
+		$urlID = $q->fetch();
+
+		$this->log->logInfo("urlID: {$urlID}");
 	
-	private function parseURLRequest() {
-		# This handles the acutal redirection for the shortened URL
-		
-		try {
-			$q = $this->db->prepare("SELECT urls.url FROM urls INNER JOIN `customurl` ON customurl.urlID = urls.id WHERE customurl.customURL = :cURL");
-			$q->bindParam(":cURL", $_GET['u']);
+		if($urlID > 0) {
+			# currently already logging the given url
+			$q = $this->db->prepare("UPDATE urlclicks SET clicks = clicks + 1 WHERE urlID = :urlID");
+			$q->bindParam(":urlID", $url, PDO::PARAM_INT);
 			$q->execute();
-			$data = $q->fetch();
-		}
-		catch(PDOException $e) {
-			$this->log->logInfo("Something went wrong when querying for the custom url {$_GET['u']} - {$e}");
-		}
-		
-		
-		if($data[0] != false) {
-			# The provided id isn't a number, but a custom URL so lets just do the redirection right away.
-			$this->log->logInfo("Redirecting to {$data['url']}");
-			$this->logUrlClick($urlID);
-			header("HTTP/1.1 301 Moved Permanently");
-			header("Location: {$data['url']}"); # Should we use URL-encode here?
-			die;
-		}
-		
-		# Reset to avoid unavoidable shitstorm
-		$query = "";
-		$data = "";
-		
-		$urlID = $this->baseToInt($_GET['u']);
-		
-		if(!preg_match("/^[0-9]+$/", $urlID)) {
-			$this->log->logInfo("Invalid ID submitted - {$urlID}");
-			header("Location:{$this->siteURL}error/201");
-			die;
-		}
-		# assuming everything's good, moving on.
-		
-		$query = $this->db->prepare("SELECT `url` FROM urls WHERE `id` = :id");
-		$query->bindParam(":id", $urlID);
-		$query->execute();
-		
-		$data = $query->fetch();
-		
-		if(!isset($data['url'])) {
-			$this->log->logWarn("The database did not return any URL for ID {$_GET['u']}");
-			header("Location:{$this->siteURL}error/201");
-			die;
 		}
 		else {
-			$this->log->logInfo("Redirecting to {$data['url']}");
-			$this->logUrlClick($urlID);
-			header("HTTP/1.1 301 Moved Permanently");
-			header("Location: {$data['url']}"); # Should we use URL-encode here?
-			die;
+			# currently not logging the given url
+			$q = $this->db->prepare("INSERT INTO urlclicks SET clicks = 1, urlID = :urlID");
+			$q->bindParam(":urlID", $url, PDO::PARAM_INT);
+			$q->execute();
 		}
+
+		$q = $this->db->prepare("INSERT INTO urlstats SET urlID = :urlID");
+		$q->bindParam(":urlID", $url, PDO::PARAM_INT);
+		$q->execute();
+
+		return true;
 	}
-	
+
+	################################
+	### INTERNAL FUNCTIONS BELOW ###
+	################################
+
 	private function postURL() {
 		# This function handles the submission of urls to the database
 		# Returns the URL-id on success, redirects to following error-messages upon errors:
@@ -192,187 +213,113 @@ class mify {
 				header("Location:{$this->siteURL}error/101");
 				die;
 			}
-			/*
-			if($useCustomURL == true) {
-				# we need to ensure that the custom url does not exist already (only applies if the user want's a custom one
-				$q = $this->db->prepare("SELECT customurl.urlID FROM `customurl` WHERE customurl.customURL = :cURL");
-				$q->bindParam(":cURL", $_POST['mifyCustom']);
+			
+			try {
+				$this->db->beginTransaction();
+				$q = $this->db->prepare("INSERT INTO `urls` SET `url` = :url, `hash` = MD5(:url)");
+				$q->bindParam(":url", $url);
+				$i = $this->db->prepare("SELECT LAST_INSERT_ID()");
+				
 				$q->execute();
-				$data = $q->fetch();
-				
-				if($data['urlID'] > 0) {
-					# the chosen custom url already exist in the database, the user need to provide a new one
-					header("Location:{$this->siteURL}?e=103");
-				}
-				
+				$i->execute();
+				$this->db->commit();
+				$id = $i->fetch();
 			}
-			*/
-			
-			$q = $this->db->prepare("SELECT urls.url, customurl.customURL FROM `urls` LEFT JOIN `customurl` ON urls.id = customurl.urlID WHERE urls.hash = MD5(:url)");
-			$q->bindParam(":url", $url);
-			$q->execute();
-			$data = $q->fetch();
-			
-			if(isset($data['id']) && $data['id'] > 0 && $useCustomURL == false) {
-				# we got the record already, let's just generate the url from here (no need to insert it into the db since it's already there..)
-				# this is unless the user passes on a custom url, then they probably would want that instead
-				#echo $this->intToBase($data['id']);
-				#header("Location:{$this->siteURL}?url="
-				#die;
-				
+			catch(PDOException $e) {
+				$this->db->rollBack();
+				$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
+				header("Location:{$this->siteURL}error/102");
+				die;
 			}
-			elseif(isset($data['id']) && $data['id'] > 0 && $useCustomURL == true) {
-				# We got an existing URL in the database but not the custom one, so lets just add it and we're all set and done!
-				try {
-					$this->db->beginTransaction();
-					$q = $this->db->prepare("INSERT INTO `customurl` SET `customURL` = :cURL, `urlID` = :urlID");
-					$q->bindParam(":cURL", $_POST['mifyCustom']);
-					$q->bindParam(":urlID", $data['id']);
-					$q->execute();
-					$this->db->commit();
-				}
-				catch(PDOException $e) {
-					$this->log->logAlert("Failed to add the custom URL to the database. URL: {$_POST['mifyCustom']} - Exception {$e}");
-				}
-			}
-			else {
-				try {
-					$this->db->beginTransaction();
-					$q = $this->db->prepare("INSERT INTO `urls` SET `url` = :url, `hash` = MD5(:url)");
-					$q->bindParam(":url", $url);
-					$i = $this->db->prepare("SELECT LAST_INSERT_ID()");
-						
-						
-					
-					$q->execute();
-					$i->execute();
-					$this->db->commit();
-					
-					$id = $i->fetch();
-				}
-				catch(PDOException $e) {
-					$this->db->rollBack();
-					$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
-					header("Location:{$this->siteURL}error/102");
-					die;
-				}
-				if($useCustomURL == true) {
-					try {
-						$this->db->beginTransaction();
-						$c = $this->db->prepare("INSERT INTO `customurl` SET `urlID` = :id, `customURL` = :cURL");
-						$c->bindParam(":id", $id[0], PDO::PARAM_INT);
-						$c->bindParam(":cURL", $cURL);
-						$c->execute();
-						$this->db->commit();
-					}
-					catch(PDOException $e) {
-						$this->db->rollBack();
-						$this->log->logAlert("Failed to add the custom URL to database. URL: {$cURL} - Exception {$e}");
-						header("Location:{$this->siteURL}error/102");
-						die;
-					}
-				}
+
 				# now $id[0] contains the id of the url in the db
 				# just generate the url from here
-				if($useCustomURL == true) {
-					echo $cURL;
-				}
-				else {
-					$id = $this->intToBase($id[0]);
-					header("Location:{$this->siteURL}done/{$id}");
-					die;
-				}
-			}
+				$id = $this->intToBase($id[0]);
+				header("Location:{$this->siteURL}done/{$id}");
+				die;
 		}
 		else {
 			$this->log->logEmerg("Missing database-connection. - ".var_dump($this->db));
 			header("Location:{$this->siteURL}{$this->dbErrorPage}");
-			die; ## TODO: Fix better handeling of dropped database-connections
+			die; // TODO: Probably fix better handeling of dropped db-connections
 		}
 	}
 
-	public function getURLLink($id) {
-		return $this->siteURL . "u/{$id}";
+	private function parseURLRequest() {
+		# This function handles the redirection for shortened URLs
+		# Redirects the user upon success and redirects to following error-messages upon errors:
+		# 201 - Missing url-entry for the given ID
+
+		$urlID = $this->baseToInt($_GET['u']);
+		$this->verifyID($urlID);
+
+		# assuming everything's good, moving on.
+		
+		$query = $this->db->prepare("SELECT `url` FROM urls WHERE `id` = :id");
+		$query->bindParam(":id", $urlID);
+		$query->execute();
+		
+		$data = $query->fetch();
+		
+		if(!isset($data['url'])) {
+			$this->log->logWarn("The database did not return any URL for ID {$_GET['u']}");
+			header("Location:{$this->siteURL}error/201");
+			die;
+		}
+		else {
+			$this->log->logInfo("Redirecting to {$data['url']}");
+			$this->logUrlClick($urlID);
+			header("HTTP/1.1 301 Moved Permanently");
+			header("Location: {$data['url']}"); # Should we use URL-encode here?
+			die;
+		}
 	}
 
-
 	private function intToBase($i) {
+		# Converts from base10 to base36
+		if(!isset($i)) {
+			throw new Exception("Missing parameter, aborting.", 0);
+		}
+
 		return base_convert($i, 10, 36);
 	}
 	private function baseToInt($i) {
+		# Converts from base36 to base10
+		if(!isset($i)) {
+			throw new Exception("Missing parameter, aborting.", 0);
+		}
+
 		return base_convert($i, 36, 10);
 	}
 
-	public function getUrlStats($url) {
-
-		$iurl = $this->baseToInt($url); // fixes the url so that it's an int :D
-
-		$q = $this->db->prepare("SELECT `clicks` FROM `urlclicks` WHERE `urlID` = :url");
-		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
-		$q->execute();
-
-		$urlClicks = $q->fetch();
-
-		$q = $this->db->prepare("SELECT COUNT(`urlID`) FROM `urlstats` WHERE `timestamp` >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND `urlID` = :url");
-		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
-		$q->execute();
-
-		$urlClicksDays = $q->fetch();
-
-		if($urlClicks[0] < 1) {
-			$urlClicks[0] = 0;
+	private function verifyID($urlID) {
+		# Returns a 201-error if the given urlid is anything else but an int
+		if(!isset($urlID)) {
+			throw new Exception("Missing parameter, aborting.", 0);
 		}
 
-		if($urlClicksDays[0] < 1) {
-			$urlClicksDays[0] = 0;
-		}
-
-		return array(0 => "{$this->siteURL}u/{$url}", 1 => $urlClicks[0], 2 => $urlClicksDays[0]);
-		/*
-			array(
-				0 => http://siteurl/u/ID,
-				1 => total number of clicks,
-				2 => clicks the last 7 days
-			)
-		*/
-	}
-
-
-	# URL-logging/stats functionality
-	public function logUrlClick($url) {
-		if(!isset($url)) {
-			return false;
-		}
-
-		$q = $this->db->prepare("SELECT `urlID` FROM `urlclicks` WHERE `urlID` = :url");
-		$q->bindParam(":url", $url, PDO::PARAM_INT);
-		$q->execute();
-
-		$urlID = $q->fetch();
-
-		$this->log->logInfo("urlID: {$urlID}");
-	
-
-		if($urlID > 0) {
-			# currently already logging the given url
-			$q = $this->db->prepare("UPDATE urlclicks SET clicks = clicks + 1 WHERE urlID = :urlID");
-			$q->bindParam(":urlID", $url, PDO::PARAM_INT);
-			$q->execute();
+		if(!preg_match("/^[0-9]+$/", $urlID)) {
+			$this->log->logInfo("Invalid ID submitted - {$urlID}");
+			header("Location:{$this->siteURL}error/201");
+			die;
 		}
 		else {
-			# currently not logging the given url
-			$q = $this->db->prepare("INSERT INTO urlclicks SET clicks = 1, urlID = :urlID");
-			$q->bindParam(":urlID", $url, PDO::PARAM_INT);
-			$q->execute();
+			return true;
 		}
-
-
-		$q = $this->db->prepare("INSERT INTO urlstats SET urlID = :urlID");
-		$q->bindParam(":urlID", $url, PDO::PARAM_INT);
-		$q->execute();
-
-
-		return true;
 	}
+			
+	private function generateFormValue() {
+		#### This function is not implemented yet. ####
 
+		# Generates a unique value to be used in the form
+		# so that we're sure the request is coming from the site itself
+
+		/*
+		$this->formValue = uniqid("mify_", true);
+		$_SESSION['mifyVal'] = $this->formValue;
+		*/
+	}
+	
+
+# End of class
 }
