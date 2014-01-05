@@ -39,18 +39,11 @@ class mify {
 		$this->siteURL = $url;
 		
 		
-		
-		if($this->formValidation == true) {
-			$this->generateFormValue();
-		}
-		
 		if(!isset($this->dbErrorPage)) {
 			$this->dbErrorPage = "maint.php";
 		}
 		
 		$this->connectToDB($host, $username, $password, $database);
-		
-		
 	}
 	
 	private function connectToDB($host, $username, $password, $database) {
@@ -68,24 +61,7 @@ class mify {
 		# Returns the site url
 		return $this->siteURL;
 	}
-	
-	public function getFormValue() {
-		#### This function is not implemented yet. ####
-
-		/*
-		# Check if form-validation is used
-		if($this->formValidation == false) {
-			return;
-		}
-		else {
-			if(!$_SESSION['mifyVal'] != $this->formValue) {
-				throw new Exception("Error Processing Request", 1);
-			}
-			return $this->formValue;
-		}
-		*/
-	}
-	
+		
 	public function parseRequest() {
 		# Returns true on any request, otherwise false
 		# Actually doesn't return anything but a redirect if either post or get is set..
@@ -122,8 +98,6 @@ class mify {
 
 		$iurl = $this->baseToInt($url); // fixes the url so that it's an int :D
 		$this->verifyID($iurl);
-
-
 
 		$q = $this->db->prepare("SELECT `clicks` FROM `urlclicks` WHERE `urlID` = :url");
 		$q->bindParam(":url", $iurl, PDO::PARAM_INT);
@@ -318,19 +292,5 @@ class mify {
 			return false;
 		}
 	}
-			
-	private function generateFormValue() {
-		#### This function is not implemented yet. ####
-
-		# Generates a unique value to be used in the form
-		# so that we're sure the request is coming from the site itself
-
-		/*
-		$this->formValue = uniqid("mify_", true);
-		$_SESSION['mifyVal'] = $this->formValue;
-		*/
-	}
-	
-
 # End of class
 }
