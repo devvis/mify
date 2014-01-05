@@ -162,8 +162,6 @@ class mify {
 
 		$urlID = $q->fetch();
 
-		$this->log->logInfo("urlID: {$urlID}");
-	
 		if($urlID > 0) {
 			# currently already logging the given url
 			$q = $this->db->prepare("UPDATE urlclicks SET clicks = clicks + 1 WHERE urlID = :urlID");
