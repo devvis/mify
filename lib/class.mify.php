@@ -209,7 +209,7 @@ class mify {
 			
 			if($this->urlHelp->verifyURL($url) == false) {
 				## Check so that the url is valid and so, through curl and regexp!
-				$this->log->logInfo("Seems like the url {$_POST['mifyURL']} is invalid.");
+				$this->debugLog("Seems like the url {$_POST['mifyURL']} is invalid.");
 				header("Location:{$this->siteURL}error/101");
 				die;
 			}
@@ -262,12 +262,12 @@ class mify {
 		$data = $query->fetch();
 		
 		if(!isset($data['url'])) {
-			$this->log->logWarn("The database did not return any URL for ID {$_GET['u']}");
+			$this->debugLog("The database did not return any URL for ID {$_GET['u']}");
 			header("Location:{$this->siteURL}error/201");
 			die;
 		}
 		else {
-			$this->log->logInfo("Redirecting to {$data['url']}");
+			$this->debugLog("Redirecting to {$data['url']}");
 			$this->logUrlClick($urlID);
 			header("HTTP/1.1 301 Moved Permanently");
 			header("Location: {$data['url']}"); # Should we use URL-encode here?
@@ -305,6 +305,19 @@ class mify {
 		}
 		else {
 			return true;
+		}
+	}
+
+	private function debugLog($text) {
+		$data = debug_backtrace();
+		$cFunc = $data[1]['function'];	# now contains the calling functions name
+
+		if($this->debug == true) {
+			$this->log->logInfo("({$cFunc}): {$text}");
+			return true;
+		}
+		else {
+			return false;
 		}
 	}
 			
