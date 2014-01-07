@@ -7,9 +7,6 @@ class mify {
 	# ?e=201 - Invalid ID submitted
 	# ?e=202 - Error while processing the request
 	
-	# TODO:
-	# 1) Add validation for custom urls, should only contain a-z A-Z 0-9 and _
-	
 	public $formValidation;
 	public $dbErrorPage;
 	public $debug;
@@ -96,7 +93,14 @@ class mify {
 			throw new Exception("Missing parameter, aborting.", 0);
 		}
 
-		$iurl = $this->baseToInt($url); // fixes the url so that it's an int :D
+		# we need to grab the custom-url's id, if any
+		$iurl = $this->grabStatsID($url);
+		if($iurl != false) {
+
+		}
+		else {
+			$iurl = $this->baseToInt($url); // fixes the url so that it's an int :D
+		}
 		$this->verifyID($iurl);
 
 		$q = $this->db->prepare("SELECT `clicks` FROM `urlclicks` WHERE `urlID` = :url");
@@ -122,6 +126,24 @@ class mify {
 		return array(0 => "{$this->siteURL}u/{$url}", 1 => $urlClicks[0], 2 => $urlClicksDays[0]);
 	}
 
+	################################
+	### INTERNAL FUNCTIONS BELOW ###
+	################################
+
+	# checks if the given url-id is part of a custom-url
+	private function grabStatsID($urlID) {
+		$q = $this->db->prepare("SELECT `urlID` FROM customurl WHERE `customURL` = :cURL");
+		$q->bindParam(":cURL", $urlID);
+		$q->execute();
+		$data = $q->fetch();
+
+		if($data['urlID'] > 0) {
+			return $data['urlID'];
+		}
+		else {
+			return false;
+		}
+	}
 
 	# URL-logging/stats functionality
 	private function logUrlClick($url) {
@@ -156,10 +178,6 @@ class mify {
 		return true;
 	}
 
-	################################
-	### INTERNAL FUNCTIONS BELOW ###
-	################################
-
 	private function postURL() {
 		# This function handles the submission of urls to the database
 		# Returns the URL-id on success, redirects to following error-messages upon errors:
@@ -173,42 +191,105 @@ class mify {
 			$url = htmlentities(trim($_POST['mifyURL']));
 			
 			if(isset($_POST['mifyCustom'])) {
-				$cURL = htmlentities(trim($_POST['mifyCustom']));
+				$cURL = trim($_POST['mifyCustom']);
 				if($cURL != "") {
 					$useCustomURL = true;
 				}
+				else {
+					$useCustomURL = false;
+				}
 			}
-			
+
 			if($this->urlHelp->verifyURL($url) == false) {
 				## Check so that the url is valid and so, through curl and regexp!
 				$this->debugLog("Seems like the url {$_POST['mifyURL']} is invalid.");
 				header("Location:{$this->siteURL}error/101");
 				die;
 			}
-			
-			try {
-				$this->db->beginTransaction();
-				$q = $this->db->prepare("INSERT INTO `urls` SET `url` = :url, `hash` = MD5(:url)");
-				$q->bindParam(":url", $url);
-				$i = $this->db->prepare("SELECT LAST_INSERT_ID()");
-				
-				$q->execute();
-				$i->execute();
-				$this->db->commit();
-				$id = $i->fetch();
-			}
-			catch(PDOException $e) {
-				$this->db->rollBack();
-				$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
-				header("Location:{$this->siteURL}error/102");
-				die;
-			}
 
+
+			if($useCustomURL == true) {
+				# The user submitted an custom-created url, let's fix that for him.
+
+				if(!preg_match("/^([a-zA-Z0-9]+)$/", $cURL)) {
+					# Submitted an invalid custom-url, we don't want that here.
+					header("Location:{$this->siteURL}error/103");
+					die;
+				}
+
+				$q = $this->db->prepare("SELECT `urlID` FROM `customurl` WHERE `customURL` = :cURL");
+				$q->bindParam(":cURL", $cURL);
+				$q->execute();
+				$data = $q->fetch();
+				
+				if($data['urlID'] > 0) {
+					# the chosen custom url already exist in the database, the user need to provide a new one
+					header("Location:{$this->siteURL}error/104");
+					die;
+				}
+				else {
+					# The custom-url submitted seems okay, let's go for it.
+					try {
+						$this->db->beginTransaction();
+						$q = $this->db->prepare("INSERT INTO `urls` SET `url` = :url, `hash` = MD5(:url)");
+						$q->bindParam(":url", $url);
+						$i = $this->db->prepare("SELECT LAST_INSERT_ID()");
+						
+						$q->execute();
+						$i->execute();
+						$this->db->commit();
+						$id = $i->fetch();		# contains the id of the newly added url
+					}
+					catch(PDOException $e) {
+						$this->db->rollBack();
+						$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
+						header("Location:{$this->siteURL}error/102");
+						die;
+					}
+					try {
+						$this->db->beginTransaction();
+						$q = $this->db->prepare("INSERT INTO `customurl` SET `urlID` = :urlID, `customURL` = :cURL");
+						$q->bindParam(":urlID", $id[0], PDO::PARAM_INT);
+						$q->bindParam(":cURL", $cURL);
+						$q->execute();
+						$this->db->commit();
+					}
+					catch(PDOException $e) {
+						$this->db->rollBack();
+						$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
+						header("Location:{$this->siteURL}error/102");
+						die;
+					}
+					# Everything should be added now, just redirect
+					header("Location:{$this->siteURL}done/{$cURL}");
+					die;
+				}
+			}
+			else {
+				# If no custom-url was submitted, just go on as usual
+				try {
+					$this->db->beginTransaction();
+					$q = $this->db->prepare("INSERT INTO `urls` SET `url` = :url, `hash` = MD5(:url)");
+					$q->bindParam(":url", $url);
+					$i = $this->db->prepare("SELECT LAST_INSERT_ID()");
+					
+					$q->execute();
+					$i->execute();
+					$this->db->commit();
+					$id = $i->fetch();
+				}
+				catch(PDOException $e) {
+					$this->db->rollBack();
+					$this->log->logAlert("Failed to add the URL to database. URL: {$url} - Exception {$e}");
+					header("Location:{$this->siteURL}error/102");
+					die;
+				}
 				# now $id[0] contains the id of the url in the db
 				# just generate the url from here
 				$id = $this->intToBase($id[0]);
 				header("Location:{$this->siteURL}done/{$id}");
 				die;
+			}
 		}
 		else {
 			$this->log->logEmerg("Missing database-connection. - ".var_dump($this->db));
@@ -221,6 +302,8 @@ class mify {
 		# This function handles the redirection for shortened URLs
 		# Redirects the user upon success and redirects to following error-messages upon errors:
 		# 201 - Missing url-entry for the given ID
+
+		$this->parseCustomURL();	# Let's see if there's an custom-url we gotten our hands on
 
 		$urlID = $this->baseToInt($_GET['u']);
 		$this->verifyID($urlID);
@@ -247,6 +330,44 @@ class mify {
 		}
 	}
 
+	private function parseCustomURL() {
+		$urlID = $_GET['u'];
+
+		$q = $this->db->prepare("SELECT `urlID` FROM customurl WHERE `customURL` = :urlID");
+		$q->bindParam(":urlID", $urlID);
+		$q->execute();
+
+		$data = $q->fetch();
+
+
+		if($data['urlID'] != "") {
+			# We got the url! :D
+			$q = $this->db->prepare("SELECT `url` FROM urls WHERE `id` = :id");
+			$q->bindParam(":id", $data['urlID']);
+			$q->execute();
+			$url = $q->fetch();
+
+			if(!isset($url['url'])) {
+				$this->debugLog("The database did not return any URL for ID {$data['urlID']}");
+				header("Location:{$this->siteURL}error/201");
+				die;
+			}
+			else {
+				$this->debugLog("Redirecting to {$data['url']}");
+				$this->logUrlClick($data['urlID']);
+				header("HTTP/1.1 301 Moved Permanently");
+				header("Location: {$url['url']}"); # Should we use URL-encode here?
+				die;
+			}
+
+		}
+		else {
+			# No custom-url provided, move along.
+			return false;
+		}
+
+	}
+
 	private function intToBase($i) {
 		# Converts from base10 to base36
 		if(!isset($i)) {
@@ -266,17 +387,20 @@ class mify {
 
 	private function verifyID($urlID) {
 		# Returns a 201-error if the given urlid is anything else but an int
+		# However, returns true if the url is a valid custom-one
+		# Note that the ID must ALWAYS be in base10
 		if(!isset($urlID)) {
 			throw new Exception("Missing parameter, aborting.", 0);
 		}
 
-		if(!preg_match("/^[0-9]+$/", $urlID)) {
+		if(preg_match("/^[0-9]+$/", $urlID)) {
+			# The id submitted seems to be a normal int'y id
+			return true;
+		}
+		else {
 			$this->log->logInfo("Invalid ID submitted - {$urlID}");
 			header("Location:{$this->siteURL}error/201");
 			die;
-		}
-		else {
-			return true;
 		}
 	}
 
